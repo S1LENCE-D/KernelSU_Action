@@ -178,23 +178,48 @@ jobs:
       - name: Apply kernel patches
         run: bash scripts/patches.sh all
 
-      - name: Fix msm-cirrus-playback.h header
+      - name: Fix UAPI headers and disable hdrtest
         run: |
-          echo "Fixing msm-cirrus-playback.h missing types..."
-          HEADER_FILE="kernel_workspace/android-kernel/usr/include/audio/sound/msm-cirrus-playback.h"
-          if [ -f "$HEADER_FILE" ]; then
-            if ! grep -q "linux/types.h" "$HEADER_FILE"; then
-              sed -i '1i #include <linux/types.h>' "$HEADER_FILE"
-              echo "Added #include <linux/types.h>"
-            fi
-            if ! grep -q "stdint.h" "$HEADER_FILE"; then
-              sed -i '1i #include <stdint.h>' "$HEADER_FILE"
-              echo "Added #include <stdint.h>"
-            fi
-            head -5 "$HEADER_FILE"
-          else
-            echo "WARNING: header not found, skipping"
+          echo "=== Disabling UAPI_HEADER_TEST in defconfig ==="
+          DEFCONFIG="kernel_workspace/android-kernel/arch/arm64/configs/vendor/lahaina-qgki_defconfig"
+          if [ -f "$DEFCONFIG" ]; then
+            grep -q "UAPI_HEADER_TEST" "$DEFCONFIG" || \
+              echo "# CONFIG_UAPI_HEADER_TEST is not set" >> "$DEFCONFIG"
+            echo "defconfig updated: $(grep UAPI_HEADER_TEST $DEFCONFIG)"
           fi
+
+          echo "=== Fixing msm-cirrus-playback.h in all possible locations ==="
+          for HEADER_FILE in \
+            "kernel_workspace/android-kernel/usr/include/audio/sound/msm-cirrus-playback.h" \
+            "kernel_workspace/android-kernel/include/uapi/audio/sound/msm-cirrus-playback.h" \
+            "kernel_workspace/android-kernel/include/audio/sound/msm-cirrus-playback.h"; do
+            if [ -f "$HEADER_FILE" ]; then
+              echo "Fixing: $HEADER_FILE"
+              if ! grep -q "linux/types.h" "$HEADER_FILE"; then
+                sed -i '1i #include <linux/types.h>' "$HEADER_FILE"
+                echo "  + #include <linux/types.h>"
+              fi
+              if ! grep -q "stdint.h" "$HEADER_FILE"; then
+                sed -i '1i #include <stdint.h>' "$HEADER_FILE"
+                echo "  + #include <stdint.h>"
+              fi
+            else
+              echo "Not found: $HEADER_FILE"
+            fi
+          done
+
+          echo "=== Also disable hdrtest via config injection ==="
+          # 某些构建脚本会在 out 目录生成 usr/include，需要在这里补丁
+          find kernel_workspace -name "msm-cirrus-playback.h" 2>/dev/null | while read f; do
+            echo "Found & fixing: $f"
+            if ! grep -q "linux/types.h" "$f"; then
+              sed -i '1i #include <linux/types.h>' "$f"
+            fi
+            if ! grep -q "stdint.h" "$f"; then
+              sed -i '1i #include <stdint.h>' "$f"
+            fi
+          done
+          echo "Done fixing headers"
 
       - name: Set up ccache
         if: env.ENABLE_CCACHE == 'true'
