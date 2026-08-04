@@ -17,7 +17,7 @@ on:
       ksu_variant:
         description: "KernelSU variant"
         required: false
-        default: "config"
+        default: "sukisu-ultra"
         type: choice
         options:
           - config
@@ -36,7 +36,7 @@ on:
       hook_mode:
         description: "Syscall hook mechanism"
         required: false
-        default: "config"
+        default: "manual"
         type: choice
         options: [config, auto, kprobes, manual, tracepoint, syscall, none]
       susfs:
@@ -77,9 +77,9 @@ on:
   workflow_call:
     inputs:
       config:          { required: false, default: "config.env", type: string }
-      ksu_variant:     { required: false, default: "config",     type: string }
+      ksu_variant:     { required: false, default: "sukisu-ultra", type: string }
       ksu_ref:         { required: false, default: "",           type: string }
-      hook_mode:       { required: false, default: "config",     type: string }
+      hook_mode:       { required: false, default: "manual",     type: string }
       susfs:           { required: false, default: "config",     type: string }
       path_umount:     { required: false, default: "config",     type: string }
       hide_stuff:      { required: false, default: "config",     type: string }
@@ -178,6 +178,28 @@ jobs:
       - name: Apply kernel patches
         run: bash scripts/patches.sh all
 
+
+      - name: Fix msm-cirrus-playback.h header
+        run: |
+          echo "Fixing msm-cirrus-playback.h missing types..."
+          HEADER_FILE="kernel_workspace/android-kernel/usr/include/audio/sound/msm-cirrus-playback.h"
+          if [ -f "$HEADER_FILE" ]; then
+            # 在文件开头加入 include，如果还没有的话
+            if ! grep -q "linux/types.h" "$HEADER_FILE"; then
+              sed -i '1i #include <linux/types.h>' "$HEADER_FILE"
+              echo "Added #include <linux/types.h> to $HEADER_FILE"
+            fi
+            # 如果 linux/types.h 不行，再加 stdint.h 保险
+            if ! grep -q "stdint.h" "$HEADER_FILE"; then
+              sed -i '1i #include <stdint.h>' "$HEADER_FILE"
+              echo "Added #include <stdint.h> to $HEADER_FILE"
+            fi
+            head -10 "$HEADER_FILE"
+          else
+            echo "WARNING: $HEADER_FILE not found, skipping"
+          fi
+
+      - name: Set up ccache
       - name: Set up ccache
         if: env.ENABLE_CCACHE == 'true'
         uses: hendrikmuhs/ccache-action@v1.2
